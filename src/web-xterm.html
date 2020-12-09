@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>web-xterm</title>
+  <link rel = "stylesheet" href="../node_modules/xterm/css/xterm.css" />
+</head>
+
+<body>
+  <div class='console' id="xterm"></div>
+  <script src="../node_modules/xterm/lib/xterm.js" ></script>
+  <script >
+    const IPC = require('electron').ipcRenderer;
+    const utf8 = require('utf8');
+    const SSHClient = require("ssh2").Client;
+    let sshclient = new SSHClient();
+    // let events = require("events");
+    // //创建一个事件监听对象
+    // let emitter = new events.EventEmitter();
+    var prefix = '$';
+    var ssh = false;
+    var echo = true;
+    var input = "";
+    var currentOffset = 0;
+    var histIndex = 0;
+    var histCommandList = [];
+    var w = parseInt(window.innerWidth/9)-1;
+    var h = parseInt(window.innerHeight/17)-1;
+    var xstream = {}
+    var hostinfo = {}
+    const clipboard = require('electron').clipboard;
+    var term = new Terminal({
+                cols: w,
+                rows: h,
+                renderType: "canvas",
+                convertEol: true,
+                cursorStyle: "underline",
+                cursorBlink: true,
+                scrollback: 800,
+                screenKeys: true,
+                disableStdin: false, //是否应禁用输入。
+                theme: {
+                    "background":"#424200",
+                    "foreground":"#FFFCEC",
+                    "curor":"help"
+                }
+            });
+    term.open(document.getElementById("xterm"));
+    term.focus();
+    write('\x1b[1;1;32m欢迎使用Xterm!\x1b[0m')
+    term.prompt = () => {
+        write("\r\n"+prefix)
+    }
+    term.prompt()
+    // IPC.send('xterm-ready',{id:'123',data:'ready'})
+    // ipc通信返回
+    IPC.on('xterm-init', (event, res) => {
+        // if(res.match(regex2)){
+        // var m = rtitle.exec(res)
+        // document.title = m
+        // }
+        hostinfo = eval('('+res+')')
+        console.log(hostinfo)
+        //term.write(res)
+        initConnect(hostinfo);
+    });
+    //监听error事件
+    // emitter.addListener("error", function (e) {
+    process.on('uncaughtException', function(e) {
+        /*处理异常*/
+        console.log('error',e)
+        term.write("\x1b[1;31;40m连接失败！"+e.message+"\x1b[0m\r\n"+prefix);
+    });
+    term.onKey(function(ev) {
+        var e = ev.domEvent.keyCode
+        const printable = !ev.domEvent.altKey && !ev.domEvent.altGraphKey && !ev.domEvent.ctrlKey && !ev.domEvent.metaKey
+        let threshold = prefix.length
+        if(ssh) threshold = 0
+        // 总偏移(长度) = 输入+前缀
+        let fixation = input.length + threshold
+        // 当前x偏移量
+        let offset = term._core.buffer.x
+        currentOffset = fixation
+        //console.log(ev.key,e,offset,fixation)
+        if(!printable){
+            console.log('alt',ev.domEvent.altKey,e)
+            console.log('ctrl',ev.domEvent.ctrlKey,e)
+            console.log('meta',ev.domEvent.metaKey,e)
+            if(ev.domEvent.ctrlKey && e == 67){ //Ctrl+C
+                xstream.write('\u0003')//^C
+            }
+            if(ev.domEvent.ctrlKey && e == 86){ //Ctrl+V
+                xstream.write(clipboard.readText().toString("binary"))//^C
+            }
+            if(ev.domEvent.altKey && e == 231){ //Alt+C
+                clipboard.writeText(term.getSelection())
+            }
+            return
+        }
+        if(ssh){
+            xstream.write(ev.key.toString("binary"))
+            //IPC.send('xterm-input',{id:'123',data:ev.key})
+        }
+        switch(e) {
+            case 13://回车
+                handleInput()
+                break;
+            case 8://退格
+                if (offset > threshold && echo) {
+                    term._core.buffer.x = offset - 1
+                    // \x1b[?K: 清除光标至行末的"可清除"字符
+                    write('\x1b[?K' + input.slice(offset - threshold))
+                    // 保留原来光标位置
+                    const cursor = bulidData(fixation - offset, '\x1b[D')
+                    write(cursor)
+                    input = `${input.slice(0, offset - threshold - 1)}${input.slice(offset - threshold)}`
+                }
+                break;
+            case 35:
+                const cursor = bulidData(fixation - offset, '\x1b[C')
+                write(cursor)
+                break;
+            case 38:// 方向盘上键
+                if (histCommandList[histIndex - 1] &&! ssh) {
+                // 将光标重置到末端
+                term._core.buffer.x = fixation
+                let b1 = '', b2 = '', b3 = '';
+                // 构造退格(模拟替换效果) \b \b标识退一格; \b\b  \b\b表示退两格...
+                for (let i = 0; i < input.length; i++) {
+                    b1 = b1 + '\b'
+                    b2 = b2 + ' '
+                    b3 = b3 + '\b'
+                }
+                write(b1 + b2 + b3)
+                input = histCommandList[histIndex - 1]
+                write(histCommandList[histIndex - 1])
+                        histIndex--
+                }
+                break;      
+            case 40:// 方向盘下键
+                if (histCommandList[histIndex + 1]&&!ssh) {
+                // 将光标重置到末端
+                term._core.buffer.x = fixation  
+                let b1 = '', b2 = '', b3 = '';
+                // 构造退格(模拟替换效果) \b \b标识退一格; \b\b  \b\b表示退两格...
+                for (let i = 0; i < histCommandList[histIndex].length; i++) {
+                    b1 = b1 + '\b'
+                    b2 = b2 + ' '
+                    b3 = b3 + '\b'
+                }
+                input = histCommandList[histIndex + 1]
+                write(b1 + b2 + b3)
+                write(histCommandList[histIndex + 1])
+                    histIndex++
+                }
+                break;      
+            case 37:// 方向盘左键
+                if (offset > threshold) {
+                    write(ev.key)
+                }
+                break;
+            case 39:// 方向盘右键
+                if (offset < fixation) {
+                    write(ev.key)
+                }
+                break;
+            default:
+                if (printable) {
+                // 限制输入最大长度 防止换行bug
+                if (fixation >= term.cols)  return
+                // 不在末尾插入时 要拼接
+                if (offset < fixation) {
+                    write('\x1b[?K' + `${ev.key}${input.slice(offset - threshold)}`)
+                    const cursor = bulidData(fixation - offset, '\x1b[D')
+                    write(cursor)
+                    input = `${input.slice(0, offset - threshold)}${ev.key}${input.slice(offset - threshold)}`
+                } else {
+                    write(ev.key)
+                    input += ev.key
+                }
+                    histIndex = histCommandList.length
+                }
+                break;
+        }
+    });
+    function write(data) {
+        if(echo)term.write(data)
+    }
+     // 在这里处理自定义输入...
+    function handleInput() {
+        // 判断空值
+        if (input.trim()) {
+        // 记录历史命令
+        if (histCommandList[histCommandList.length - 1] !== input) {
+            histCommandList.push(input)
+            histIndex = histCommandList.length
+        }
+        const command = input.trim().split(' ')
+        //console.log("exec",command)
+        const result = handelCmd(input.trim());
+        input = ''
+        if(!ssh){
+            term.prompt()
+        }
+        }
+    }
+
+    function bulidData(length, subString) {
+        let cursor = ''
+        for (let i = 0; i < length; i++) {
+            cursor += subString
+        }
+        return cursor;
+    }
+
+    function handelCmd(cmd) {
+        switch(cmd){
+            case 'exit':
+                //window.close();
+                ssh = false
+                echo = true
+                sshclient.end()
+                break;
+            case 'close':
+                sshclient.end()
+                window.close();
+                break;
+            case 'reconnect':
+                initConnect(hostinfo)
+                break;
+            default:
+                //console.log(cmd)
+        }
+        return ""
+    }
+    function initConnect(host) {
+        console.log(host)
+        if(!host.host){
+            term.write("\x1b[1;31;40m连接失败-无效的连接参数（请关闭窗口）！\x1b[0m\r\n"+prefix);
+            return
+        }
+        try{
+        document.title = "Connect..."+host.host+"@"+host.username
+        term.write("Start Connect "+host.host+"@"+host.username+"\n")
+        sshclient.on('ready',() => {
+        ssh = true
+        echo = false
+        document.title = host.host+"@"+host.username
+        sshclient.shell({cols:w,rows:h},function(err,stream){
+        if(err) {
+            console.log("SSH error :",err);
+        }
+        xstream = stream
+        stream.on('data',function(d){
+            var res = utf8.decode(d.toString("binary"));
+            term.write(res)
+            //term.write(d.toString("binary"))
+        })
+        .on('error',function(e){
+            console.log('sshclient close',e)
+            sshclient.end();
+            term.write("\x1b[1;31;40m已断开连接\x1b[0m\r\n"+prefix);
+            //term.prompt()
+            document.title = '[已断开]'+host.host+"@"+host.username
+            ssh = false
+            echo = true
+        })
+        });
+        }).connect(host,callback);
+        }catch(err){
+            console.log("connect failed!",host,err)
+            term.write("\x1b[1;31;40m连接失败！"+err.message+"\x1b[0m\r\n"+prefix);
+        }
+    }
+    function callback(data) {
+        console.log('call back :',data)
+    }
+  </script>
+</body>
+<style>
+html,body {
+    position: relative;
+    background: #424200;
+}    
+
+.console {
+    flex-grow: 1;
+    display: flex;
+    position: relative;
+    height: 100%;
+    width: 100%;
+}
+</style>
+</html>
