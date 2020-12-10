@@ -69,7 +69,7 @@ function createXterm(term){
   sshwin.show()
   sshwin.focus()
 }
-//一步函数还真是糟糕的状态
+//异步函数还真是糟糕的状态
 function tables(info,results){
   //return new Promise((resolve)=>{
     let tables = {}
@@ -99,13 +99,30 @@ function dbback(err,info,results,total){
   }
   if(results){
     if(info.cmd == "show tables" && results != null){
-      win.webContents.send('menu-db-tables',{host:info.host,schema:info.schema,tables:results})
-      var tabs = tables(info,results)
-      setTimeout(()=>{ //等5秒获取表结构信息
-        win.webContents.send('db-schema-change',{schema:info.schema,tables:tabs})
-      },5000)
+      if(info.host.type == 'postgres'){
+        var tbs = new Array()
+        results.forEach((tb)=>{
+          tbs.push(tb.table_name)
+        })
+        win.webContents.send('menu-db-tables',{host:info.host,schema:info.schema,tables:tbs})
+      }else{
+        win.webContents.send('menu-db-tables',{host:info.host,schema:info.schema,tables:results})
+        var tabs = tables(info,results)
+        setTimeout(()=>{ //等5秒获取表结构信息
+          win.webContents.send('db-schema-change',{schema:info.schema,tables:tabs})
+        },5000)
+      }
     }else if(info.cmd == "show databases"){
-      win.webContents.send('menu-db-schema',{host:info.host,schema:results})
+      if(info.host.type == 'postgres'){
+        var dbs = new Array()
+        results.forEach((db)=>{
+          dbs.push({'Database':db.datname})
+        })
+        logger.info('postgres:',dbs)
+        win.webContents.send('menu-db-schema',{host:info.host,schema:dbs})
+      }else{
+        win.webContents.send('menu-db-schema',{host:info.host,schema:results})
+      }
     }else{
       win.webContents.send('db-cmd-reply',{result:results,total:total,page:info.page})
     }
@@ -279,13 +296,14 @@ ipcMain.on('test-connect', function(event, arg) {
       })
       break;
     case 'mysql':
+    case 'postgres':
       db.TestConnect(arg,(err)=>{
         if(err){
           logger.error("connect "+arg.type+" failed!",arg,err)
           ERROR("connect  "+arg.type+"  failed! "+arg.host+" :"+err.message)
           event.reply('connect-reply',err.message)
         }else{
-          MSG("connect ftp success! "+arg.host)
+          MSG("connect "+arg.type+" success! "+arg.host)
           event.reply('connect-reply','success')
         }
       })

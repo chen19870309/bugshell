@@ -71,6 +71,7 @@
         btnSave: '保存连接',
         btnText: false,
         item: {},
+        showNotify: false,
         dbForm: {
           name: '',
           host: '',
@@ -128,10 +129,7 @@
                 break;
             }
             this.$store.commit('updateDBHost',this.item);
-            this.$message({
-                type: 'success',
-                message: '连接成功!'
-            });
+            this.Notify('info','连接成功')
         }
       });
       ipc.on('clipboard-v',(event, res) => {
@@ -203,6 +201,17 @@
             console.log('error submit!!');
             return false;
           }
+        });
+      },
+      Notify(type,msg){
+        setTimeout(()=>{
+          this.showNotify = false
+        },300)
+        if(this.showNotify) return
+        this.showNotify = true
+        this.$message({
+          type: type,
+          message: msg
         });
       },
       clearForm(formName) {

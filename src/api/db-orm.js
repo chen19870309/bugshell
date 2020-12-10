@@ -83,7 +83,8 @@ async function ExecCommand(info,then){
         sql = sql.substring(0,i)
         logger.info('end sql ',i,sql)
     }
-    if(sql == "show tables" && showTables){
+    if(sql == "show tables") 
+    if(showTables){
         then(null,info,null)
     }else{
         showTables = true
@@ -124,11 +125,26 @@ async function ExecCommand(info,then){
             type = client.QueryTypes.INSERT;
             break;
         case 'show':
-            if(info.cmd == 'show tables'){
-                type = client.QueryTypes.SHOWTABLES;
+            if(info.host.type == 'postgres'){
+                if(info.cmd == 'show tables'){
+                    sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+                } else {
+                    //sql = 'select datname from pg_database';
+                    //PG 绑定登陆的数据库
+                    exec = false
+                    if(then)then(null,info,[{'datname':info.host.dbname}],1)
+                }
+                    type = client.QueryTypes.SELECT;
             }else{
-                type = client.QueryTypes.SELECT;
+                if(info.cmd == 'show tables'){
+                    type = client.QueryTypes.SHOWTABLES;
+                }else{
+                    type = client.QueryTypes.SELECT;
+                }
             }
+            break;
+        case 'create': //创建表
+            type = client.QueryTypes.BULKUPDATE;
             break;
         case 'desc':
             var tableinfo = DBTablesMap.get(info.schema+commands[1])
@@ -139,6 +155,10 @@ async function ExecCommand(info,then){
         default:
             type = client.QueryTypes.SELECT;
 
+    }
+    if(info.host.type == 'postgress') {
+        sql = sql+';'
+        client.schema('public')
     }
     if(exec)
     client.query(sql,{ type: type }).then((result=>{

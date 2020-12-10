@@ -39,6 +39,7 @@ let getItem = (key) => {
 }
 
 const state = {
+	Debug: true,
 	updatadoc: true,
 	savedoc: false,
 	winlock: false,
@@ -186,12 +187,12 @@ const mutations = {
 
 const getters = {
 	checkAuthInfo: (state,getters) => (auth) => {
-		var ok = false;
+		var ok = state.Debug
 		state.AuthInfo = getItem("AUTH_USER")
 		if(state.AuthInfo.length == 0) return true //没有设定用户授权信息
 		if(auth == null || auth.username == null){
-			if(state.AuthInfo.length == 0) return true
-			else return false
+			if(state.AuthInfo.length == 0) ok = true
+			else ok = state.Debug 
 		}
 		state.AuthInfo.forEach((item)=>{
 			if(item.username == auth.username && item.password == sec.SHA256(auth.password)){

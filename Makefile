@@ -16,6 +16,4 @@ package:
 	rm -rf ./bugshell-app/bugshell-win32-x64/resources/app/node_modules/vue
 	rm -rf ./bugshell-app/bugshell-win32-x64/resources/app/node_modules/vxe-table
 	rm -rf ./bugshell-app/bugshell-win32-x64/resources/app/node_modules/codemirror
-	rm -rf ./bugshell-app/bugshell-win32-x64/resources/app/src/Editor.md
-	rm -rf ./bugshell-app/bugshell-win32-x64/LICENSES.chromium.html
 

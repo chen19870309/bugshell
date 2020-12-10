@@ -42,7 +42,7 @@ const ipc = require('electron').ipcRenderer;
       }
     },
     mounted() {
-        this.ShowBox(true)
+        this.ShowBox(!this.$store.state.Debug)
         ipc.on('win-lock',(event,arg)=>{
             this.ShowBox(arg.winlock)
             this.$store.state.winlock = arg.winlock
@@ -90,7 +90,7 @@ const ipc = require('electron').ipcRenderer;
 
 <style>
 .pop-layer {
-    display: block;
+    display: none;
     background-color: #B3B3B3;
     position: absolute;
     top:0;

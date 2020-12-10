@@ -156,6 +156,7 @@ export default {
                     ipc.send('open-xterm',value);
                     break;
                   case 'mysql':
+                  case 'postgres':
                     this.$router.push({path:"/data?id="+value.id+"&title="+value.remote});
                     break;
                   case 'databases':
