@@ -99,19 +99,11 @@ function dbback(err,info,results,total){
   }
   if(results){
     if(info.cmd == "show tables" && results != null){
-      if(info.host.type == 'postgres'){
-        var tbs = new Array()
-        results.forEach((tb)=>{
-          tbs.push(tb.table_name)
-        })
-        win.webContents.send('menu-db-tables',{host:info.host,schema:info.schema,tables:tbs})
-      }else{
         win.webContents.send('menu-db-tables',{host:info.host,schema:info.schema,tables:results})
         var tabs = tables(info,results)
         setTimeout(()=>{ //等5秒获取表结构信息
           win.webContents.send('db-schema-change',{schema:info.schema,tables:tabs})
         },5000)
-      }
     }else if(info.cmd == "show databases"){
       if(info.host.type == 'postgres'){
         var dbs = new Array()

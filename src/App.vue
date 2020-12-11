@@ -179,6 +179,6 @@ html {
     overflow:hidden;
 }
 body {
-  margin: 0px;
+  margin: 8px;
 }
 </style>

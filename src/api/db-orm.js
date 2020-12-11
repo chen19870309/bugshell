@@ -1,5 +1,6 @@
 //引入框架
 //var MYSQL = require('mysql')
+var pg = require('pg');
 var Sequelize = require('sequelize');
 const Log = require('../logger')
 let logger = Log.getLogger('Sequelize')
@@ -70,6 +71,32 @@ function count(sql){
     return strCount
 }
 
+function PGExec(host,sql,then){
+    var key = "C"+host.host+host.port+host.username+host.dbname
+    var client= DBClientMap.get(key)
+    if(!client){
+        var conString = "postgres://"+host.username+":"+host.password+"@"+host.host+":"+host.port+"/"+host.dbname
+        client = new pg.Client(conString);
+        DBClientMap.set(key,client)
+        logger.info('init pg client =>',conString)
+    }
+    client.connect(function(err) {
+        if(err) {
+          then(err)
+        }
+        logger.info('exec',sql)
+        client.query(sql, function(err, data) {
+          if(err) {
+            then(err)
+          }else{
+            logger.info('PGExec',data)
+            then(null,data)
+          }
+          client.end();
+        });
+    });
+}
+
 async function ExecCommand(info,then){
     process.on('unhandledRejection',err => {
         then(err)
@@ -101,12 +128,18 @@ async function ExecCommand(info,then){
             if(info.cmd.indexOf('limit')==-1){
                 await client.query(count(info.cmd),{ type: type }).then(r1=>{
                     if(info.page> 50) info.page = 10
-                    sql = sql + ' limit '+(info.offset?info.offset:0)+','+(info.page?info.page:10)
-                    logger.info('count',r1)
-                    total =  r1[0].COUNT
+                    if(info.host.type == 'postgres'){
+                        total =  parseInt(r1[0].count)
+                        sql = sql + ' limit '+(info.page?info.page:10)+' offset '+(info.offset?info.offset:0)
+                    }else{
+                        sql = sql + ' limit '+(info.offset?info.offset:0)+','+(info.page?info.page:10)
+                        total =  r1[0].COUNT
+                    }
+                    //logger.info('count',r1)
                     if(total>info.page){//没有分页的默认分页
                         exec = false;
                         client.query(sql,{ type: type }).then((r2=>{
+                            //logger.info('R2',r2)
                             if(then)then(null,info,r2,total)
                         }))
                     }
@@ -134,7 +167,7 @@ async function ExecCommand(info,then){
                     exec = false
                     if(then)then(null,info,[{'datname':info.host.dbname}],1)
                 }
-                    type = client.QueryTypes.SELECT;
+                type = client.QueryTypes.SELECT;
             }else{
                 if(info.cmd == 'show tables'){
                     type = client.QueryTypes.SHOWTABLES;
@@ -152,20 +185,37 @@ async function ExecCommand(info,then){
                 exec = false
                 if(then)then(null,info,tableinfo,1)
             }
+            if(info.host.type == 'postgres') {
+                sql = "Select column_name,data_type,character_maximum_length from information_schema.columns where table_schema='public' and table_name='"+commands[1]+"';"
+            }
         default:
             type = client.QueryTypes.SELECT;
 
     }
-    if(info.host.type == 'postgress') {
-        sql = sql+';'
-        client.schema('public')
-    }
     if(exec)
     client.query(sql,{ type: type }).then((result=>{
+        var pgs = new Array()
             if(commands[0] == 'desc'){ //保存表结构信息
-                DBTablesMap.set(info.schema+commands[1],result)
+                if(info.host.type == 'postgres'){
+                    result.forEach((tb)=>{
+                        pgs.push({'Field': tb.column_name })
+                    })
+                    logger.info(pgs)
+                    DBTablesMap.set(info.schema+commands[1],pgs)
+                }else{
+                    DBTablesMap.set(info.schema+commands[1],result)
+                }
             }
-            if(then)then(null,info,result,1)
+            if(info.host.type == 'postgres'){
+                if(info.cmd == 'show tables'){
+                    result.forEach((item)=>{ //返回用户表数据
+                        pgs.push(item[0])
+                    })
+                }
+                if(then)then(null,info,pgs,1)
+            }else{
+                if(then)then(null,info,result,1)
+            }
     }))
 }
 
